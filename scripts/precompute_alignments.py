@@ -7,6 +7,7 @@ import threading
 from multiprocessing import cpu_count
 from shutil import copyfile
 import tempfile
+import time
 
 import openfold.data.mmcif_parsing as mmcif_parsing
 from openfold.data.data_pipeline import AlignmentRunner
@@ -123,9 +124,10 @@ def main(args):
         bfd_database_path=args.bfd_database_path,
         uniclust30_database_path=args.uniclust30_database_path,
         pdb70_database_path=args.pdb70_database_path,
-        use_small_bfd=args.bfd_database_path is None,
+        use_small_bfd=args.use_small_bfd,
         no_cpus=args.cpus_per_task,
     )
+        #use_small_bfd=args.bfd_database_path is None,
 
     files = list(os.listdir(args.input_dir))
 
@@ -203,6 +205,8 @@ def main(args):
         )
         task_arglist = [[a] for a in split_up_arglist(files)]
 
+    t0 = time.time()
+    print(f"Starting search and alignment")
     threads = []
     for i, task_args in enumerate(task_arglist):
         print(f"Started thread {i}...")
@@ -212,6 +216,9 @@ def main(args):
 
     for t in threads:
         t.join()
+
+    print("total time : {}".format(time.time() - t0))
+    logging.info("total time : {}".format(time.time() - t0))
 
 
 if __name__ == "__main__":
@@ -243,6 +250,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--filter", type=bool, default=True,
+    )
+    parser.add_argument(
+        "--use_small_bfd", type=bool, default=True,
     )
 
     args = parser.parse_args()
