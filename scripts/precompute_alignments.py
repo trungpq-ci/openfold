@@ -8,11 +8,13 @@ from multiprocessing import cpu_count
 from shutil import copyfile
 import tempfile
 import time
+import pickle
 
 import openfold.data.mmcif_parsing as mmcif_parsing
 from openfold.data.data_pipeline import AlignmentRunner
 from openfold.data.parsers import parse_fasta
 from openfold.np import protein, residue_constants
+from openfold.data import data_pipeline
 
 from utils import add_data_args
 
@@ -112,6 +114,66 @@ def parse_and_align(files, alignment_runner, args):
         seq_group_tuples = [(k,v) for k,v in seq_group_dict.items()]
         run_seq_group_alignments(seq_group_tuples, alignment_runner, args)
 
+        # Debug: compute feature and save
+
+        def _parse_mmcif(feat_data_pipeline, path, file_id, chain_id, alignment_dir, _alignment_index):
+            with open(path, 'r') as f:
+                mmcif_string = f.read()
+
+            mmcif_object = mmcif_parsing.parse(
+                file_id=file_id, mmcif_string=mmcif_string
+            )
+
+            # Crash if an error is encountered. Any parsing errors should have
+            # been dealt with at the alignment stage.
+            if(mmcif_object.mmcif_object is None):
+                raise list(mmcif_object.errors.values())[0]
+
+            mmcif_object = mmcif_object.mmcif_object
+
+            data = feat_data_pipeline.process_mmcif(
+                mmcif=mmcif_object,
+                alignment_dir=alignment_dir,
+                chain_id=chain_id,
+            )
+                #_alignment_index=_alignment_index
+
+            return data
+
+        if (args.preprocess_feat):
+            print("Starting feature processing")
+            template_featurizer = None
+            feat_data_pipeline = data_pipeline.DataPipeline(
+                template_featurizer=template_featurizer,
+            )
+            if(f.endswith('.cif')):
+                for seq, names in seq_group_tuples:
+                    first_name = str(names[0])
+                    chain_id = first_name.split(sep="_")[1]
+                    alignment_dir = os.path.join(args.output_dir, first_name)
+
+                    data = _parse_mmcif(
+                        feat_data_pipeline=feat_data_pipeline,
+                        path=path, file_id=file_id, chain_id=chain_id,
+                        alignment_dir=alignment_dir,
+                        _alignment_index=None
+                    )
+
+                    # Save feat
+                    pkl_dir = os.path.join(args.output_dir, first_name)
+                    # try:
+                    #     os.makedirs(pkl_dir)
+                    # except Exception as e:
+                    #     logging.warning(f"Failed to create feature directory for {first_name} with exception {e}...")
+                    #     continue
+
+                    pkl_path = os.path.join(pkl_dir, "feat.pkl")
+                    try:
+                        with open(pkl_path, "wb") as f:
+                            pickle.dump(data, f, protocol=4)
+                    except Exception as e:
+                        logging.warning(f"Failed to dump feature for {first_name} with exception {e}...")
+                        continue
 
 def main(args):
     # Build the alignment tool runner
@@ -127,7 +189,7 @@ def main(args):
         use_small_bfd=args.use_small_bfd,
         no_cpus=args.cpus_per_task,
     )
-        #use_small_bfd=args.bfd_database_path is None,
+        #use_small_bfd=args.bfd_database_path is None,
 
     files = list(os.listdir(args.input_dir))
 
@@ -253,6 +315,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--use_small_bfd", type=bool, default=True,
+    )
+    parser.add_argument(
+        "--preprocess_feat", type=bool, default=False,
     )
 
     args = parser.parse_args()
